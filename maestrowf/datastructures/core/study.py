@@ -398,15 +398,13 @@ class Study(DAG):
                         dependencies.add(parent_step)
 
                 # Add the node to the ExecutionGraph and then add dependencies.
+                # TODO: We need to apply parameters to steps when added.
                 dag.add_node(node)
                 for d in dependencies:
                     dag.add_edge(d, step)
 
-                # We now can continue to the next node.
-                continue
-
-            # If we encounter workspaces being used and
-            if space_matches and not unique_params:
+            # If we encounter workspaces being used and no unique params
+            elif space_matches and not unique_params:
                 # We need to make sure to substitute the same set of parameters
                 # for each workspace at the same time.
                 new_steps = set()
@@ -439,6 +437,8 @@ class Study(DAG):
                     # Once we finish with the substitutions, we need to name
                     # the step based on the USED parameters and set its
                     # workspace.
+                    # TODO: Need to apply parameters and make sure that
+                    # parameters are used.
                     step_name = "{}_{}".format(
                         step, combo.get_param_string(params_used[step.name]))
                     # Find the most common prefix of the parent workspaces
@@ -468,8 +468,29 @@ class Study(DAG):
                 for dependency in new_parents:
                     dag.add_edge(dependency[1], dependency[0])
 
-                # Continue onto the next node in the topological list.
-                continue
+            # If we encounter unique params but no workspaces
+            elif not space_matches and unique_params:
+                # In this case we just simply iterate over the params and add
+                # the nodes based on the look up table.
+                for combo in self.parameters:
+                    # In an effort to organize the data in a hierarchical
+                    # structure, we'll find the most common prefix.
+                    # NOTE: We may need to revisit this since this structure
+                    # could be prone to making non-nested directories.
+                    combo_str = combo.get_param_string()
+                    # The root directory is the common prefix directory of the
+                    # parent steps.
+                    root_ws = os.path.commonprefix(
+                        [
+                            workspaces[parent][combo_str][1]
+                            for parent in parents[step]
+                        ]
+                    )
+                    ws_path = os.path.join(
+                        root_ws,
+                        combo.get_param_string(unique_params)
+                    )
+
 
 
         return global_workspace, dag
