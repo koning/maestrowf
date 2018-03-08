@@ -13,15 +13,16 @@ env:
 study:
     - name: get-lulesh
       description: Download LULESH and extract it.
+      depends: []
       run:
           cmd: |
             curl -L -o lulesh.tar $(LULESH_URL)
             mkdir $(OUTPUT_PATH)/lulesh
             tar -xf lulesh.tar -C $(OUTPUT_PATH)/lulesh
-          depends: []
 
     - name: make-lulesh
       description: Build the serial version of LULESH.
+      depends: [get-lulesh]
       run:
           cmd: |
             cd $(OUTPUT_PATH)/lulesh
@@ -32,14 +33,13 @@ study:
             sed -i "" 's/^#CXXFLAGS = -g -O3 -I/CXXFLAGS = -g -O3 -I/' ./Makefile
             make clean
             make
-          depends: [get-lulesh]
 
     - name: run-lulesh
       description: Run LULESH.
+      depends: [make-lulesh]
       run:
           cmd: |
             ../lulesh/lulesh2.0 -s $(SIZE) -i $(ITERATIONS) -p > $(outfile)
-          depends: [make-lulesh]
 
 global.parameters:
     SIZE:
