@@ -64,16 +64,18 @@ class StudyStep(SimObject):
         """Object that represents a single workflow step."""
         self.name = ""
         self.description = ""
+        self.depends = []
         self.run = {
-                        "cmd": "",
-                        "depends": "",
-                        "pre": "",
-                        "post": "",
-                        "restart": "",
-                        "nodes": "",
-                        "procs": "",
-                        "walltime": ""
+            "cmd": "",
+            "pre": "",
+            "post": "",
+            "restart": "",
                     }
+        self.resources = {
+            "nodes": "",
+            "procs": "",
+            "walltime": ""
+        }
 
     def apply_parameters(self, combo):
         """
