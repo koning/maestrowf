@@ -34,6 +34,7 @@ import logging
 import os
 import pickle
 import re
+from types import MethodType
 import yaml
 
 from maestrowf.abstracts import SimObject
@@ -139,27 +140,29 @@ class Study(DAG):
             - Creating the global workspace for a study.
             - Setting up the parameterized workspaces for each combination.
             - Acquiring dependencies as specified in the StudyEnvironment.
+
         - Intelligently constructing the expanded DAG to be able to:
             - Recognize when a step executes in a parameterized workspace
             - Recognize when a step executes in the global workspace
+
         - Expanding the abstract flow to the full set of specified parameters.
 
     Future functionality that makes sense to add here:
         - Metadata collection. If we're setting things up here, collect the
-          general information. We might even want to venture to say that a set
-          of directives may be useful so that they could be placed into
-          Dependency classes as hooks for dumping that data automatically.
+        general information. We might even want to venture to say that a set
+        of directives may be useful so that they could be placed into
+        Dependency classes as hooks for dumping that data automatically.
         - A way of packaging an instance of the class up into something that is
-          easy to store in the ExecutionDAG class so that an API can be
-          designed in whatever class ends up managing all of this to have
-          machine learning applications pipe messages to spin up new studies
-          using the same environment.
+        easy to store in the ExecutionDAG class so that an API can be
+        designed in whatever class ends up managing all of this to have
+        machine learning applications pipe messages to spin up new studies
+        using the same environment.
             - The current solution to this is VERY basic. Currently the plan is
-              to write a parameterized specification (not unlike the method of
-              using parameterized .dat files for simulators) and just have the
-              ML engine string replace those. It's crude because currently we'd
-              have to just construct a new environment, with no way to manage
-              injecting the new set into an existing workspace.
+            to write a parameterized specification (not unlike the method of
+            using parameterized .dat files for simulators) and just have the
+            ML engine string replace those. It's crude because currently we'd
+            have to just construct a new environment, with no way to manage
+            injecting the new set into an existing workspace.
     """
 
     def __init__(self, name, description,
@@ -288,6 +291,11 @@ class Study(DAG):
         with open(path, "wb") as metafile:
             metafile.write(yaml.dump(metadata).encode("utf-8"))
 
+        # Write out environment metadata
+        path = os.path.join(self._meta_path, "environment.yaml")
+        with open(path, "wb") as metafile:
+            metafile.write(yaml.dump(os.environ.copy()).encode("utf-8"))
+
     def load_metadata(self):
         """Load metadata for the study."""
         if not os.path.exists(self._meta_path):
@@ -322,7 +330,7 @@ class Study(DAG):
         the order that they will be encountered. The method attempts to be
         intelligent and make the intended edge based on the 'depends' entry in
         a step. When adding steps out of order it's recommended to just use the
-         base class DAG functionality and manually make connections.
+        base class DAG functionality and manually make connections.
 
          :param step: A StudyStep instance to be added to the Study instance.
         """
@@ -384,21 +392,22 @@ class Study(DAG):
     def configure_study(self, submission_attempts=1, restart_limit=1,
                         throttle=0, use_tmp=False, hash_ws=False):
         """
-        Perform initial configuration of a study.
+        Perform initial configuration of a study. \
 
-        The method is used for going through and actually acquiring each
-        dependency, substituting variables, sources and labels.
+        The method is used for going through and actually acquiring each \
+        dependency, substituting variables, sources and labels. \
 
-        :param submission_attempts: Number of attempted submissions before
-            marking a step as failed.
-        :param restart_limit: Upper limit on the number of times a step with
-        a restart command can be resubmitted before it is considered failed.
-        :param throttle: The maximum number of in-progress jobs allowed. [0
-        denotes no cap].
-        :param use_tmp: Boolean value specifying if the generated
-        ExecutionGraph dumps its information into a temporary directory.
-        :returns: True if the Study is successfully setup, False otherwise.
+        :param submission_attempts: Number of attempted submissions before \
+        marking a step as failed. \
+        :param restart_limit: Upper limit on the number of times a step with \
+        a restart command can be resubmitted before it is considered failed. \
+        :param throttle: The maximum number of in-progress jobs allowed. [0 \
+        denotes no cap].\
+        :param use_tmp: Boolean value specifying if the generated \
+        ExecutionGraph dumps its information into a temporary directory. \
+        :returns: True if the Study is successfully setup, False otherwise. \
         """
+
         self._submission_attempts = submission_attempts
         self._restart_limit = restart_limit
         self._submission_throttle = throttle
@@ -492,7 +501,8 @@ class Study(DAG):
             # Search for workspace matches. These affect the expansion of a
             # node because they may use parameters. These are likely to cause
             # a node to fall into the 'Parameter Dependent' case.
-            used_spaces = re.findall(WSREGEX, node.run["cmd"])
+            used_spaces = re.findall(
+                WSREGEX, "{} {}".format(node.run["cmd"], node.run["restart"]))
             for ws in used_spaces:
                 if ws not in self.used_params:
                     msg = "Workspace for '{}' is being used before it would" \
@@ -563,6 +573,7 @@ class Study(DAG):
                 # here, it's reflected in the ExecutionGraph.
                 node = copy.deepcopy(node)
                 node.run["cmd"] = cmd
+                node.run["restart"] = r_cmd
                 logger.debug("New cmd = %s", cmd)
                 logger.debug("New restart = %s", r_cmd)
 
@@ -820,5 +831,14 @@ class Study(DAG):
             use_tmp=self._use_tmp)
         dag.add_description(**self.description)
         dag.log_description()
+
+        # Because we're working within a Study class whose steps have already
+        # been verified to not contain a cycle, we can override the check for
+        # the execution graph. Because the execution graph is constructed from
+        # the study steps, it won't contain a cycle.
+        def _pass_detect_cycle(self):
+            pass
+
+        dag.detect_cycle = MethodType(_pass_detect_cycle, dag)
 
         return self._out_path, self._stage(dag)

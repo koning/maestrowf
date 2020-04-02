@@ -1,11 +1,11 @@
 """Module for the execution of DAG workflows."""
 from collections import deque, OrderedDict
 from datetime import datetime
+import dill
 from filelock import FileLock, Timeout
 import getpass
 import logging
 import os
-import pickle
 import shutil
 import tempfile
 
@@ -48,6 +48,7 @@ class _StepRecord(object):
         """
         self.workspace = Variable("WORKSPACE", workspace)
         step.run["cmd"] = self.workspace.substitute(step.run["cmd"])
+        step.run["restart"] = self.workspace.substitute(step.run["restart"])
 
         self.jobid = kwargs.get("jobid", [])
         self.script = kwargs.get("script", "")
@@ -119,14 +120,16 @@ class _StepRecord(object):
 
     def _execute(self, adapter, script):
         if self.to_be_scheduled:
-            retcode, jobid = adapter.submit(
+            srecord = adapter.submit(
                 self.step, script, self.workspace.value)
         else:
             self.mark_running()
             ladapter = ScriptAdapterFactory.get_adapter("local")()
-            retcode, jobid = ladapter.submit(
+            srecord = ladapter.submit(
                 self.step, script, self.workspace.value)
 
+        retcode = srecord.submission_code
+        jobid = srecord.job_identifier
         return retcode, jobid
 
     def mark_submitted(self):
@@ -444,7 +447,7 @@ class ExecutionGraph(DAG):
         :param path: Path to a ExecutionGraph pickle file.
         """
         with open(path, 'rb') as pkl:
-            dag = pickle.load(pkl)
+            dag = dill.load(pkl)
 
         if not isinstance(dag, cls):
             msg = "Object loaded from {path} is of type {type}. Expected an" \
@@ -469,7 +472,7 @@ class ExecutionGraph(DAG):
             raise Exception(msg)
 
         with open(path, 'wb') as pkl:
-            pickle.dump(self, pkl)
+            dill.dump(self, pkl)
 
     @property
     def name(self):
@@ -917,19 +920,18 @@ class ExecutionGraph(DAG):
         adapter = adapter(**self._adapter)
 
         # cancel our jobs
-        retcode = adapter.cancel_jobs(joblist)
+        crecord = adapter.cancel_jobs(joblist)
         self.is_canceled = True
 
-        if retcode == CancelCode.OK:
+        if crecord.cancel_status == CancelCode.OK:
             logger.info("Successfully requested to cancel all jobs.")
-            return retcode
-        elif retcode == CancelCode.ERROR:
-            logger.error("Failed to cancel jobs.")
-            return retcode
+        elif crecord.cancel_status == CancelCode.ERROR:
+            logger.error(
+                "Failed to cancel jobs. (Code = %s)", crecord.return_code)
         else:
-            msg = "Unknown Error (Code = {retcode})".format(retcode)
-            logger.error(msg)
-            return retcode
+            logger.error("Unknown Error (Code = %s)", crecord.return_code)
+
+        return crecord.cancel_status
 
     def cleanup(self):
         """Clean up output produced by the ExecutionGraph."""

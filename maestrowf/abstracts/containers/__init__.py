@@ -27,29 +27,24 @@
 # SOFTWARE.
 ###############################################################################
 
-"""
-The core module contains all core abstracts and classes.
-
-All core abstracts and implementations for core concept classes (Study,
-Environment, Parameter generation, etc.). This module also includes interface
-abstracts, base class abstracts, and general utilities.
-"""
-
-import logging
+"""Module that defines containers for storing various types of information."""
 
 
-try:  # Python 2.7+
-    from logging import NullHandler
-except ImportError:
-    class NullHandler(logging.Handler):
-        """Null logging handler for Python 3+."""
+class Record(object):
+    """A container class for holding general information."""
 
-        def emit(self, record):
-            """Override so that logging outputs nothing."""
-            pass
+    def __init__(self):
+        """Initialize an empty Record."""
+        self._info = {}
 
-LOGGER = logging.getLogger(__name__)
-LOGGER.addHandler(NullHandler())
+    def get(self, key, default=None):
+        """
+        Get information by key in a record.
 
-__version_info__ = ("1", "1", "7dev1")
-__version__ = '.'.join(__version_info__)
+        :param key: The key to look up in a Record's stored information.
+        :param default: The default value to return if the key is not found
+        (Default: None).
+        :returns: The information labeled by parameter key. Default if key does
+        not exist.
+        """
+        return self._info.get(key, default)

@@ -39,6 +39,7 @@ import sys
 import tabulate
 import time
 
+from maestrowf import __version__
 from maestrowf.conductor import monitor_study
 from maestrowf.datastructures import YAMLSpecification
 from maestrowf.datastructures.core import Study
@@ -89,13 +90,14 @@ def cancel_study(args):
     return 0
 
 
-def load_parameter_generator(path, kwargs):
+def load_parameter_generator(path, env, kwargs):
     """
     Import and load custom parameter Python files.
 
-    :param path: Path to a Python file containing the function
+    :param path: Path to a Python file containing the function \
     'get_custom_generator'.
-    :param kwargs: Dictionary containing keyword arguments for the function
+    :param env: A StudyEnvironment object containing custom information.
+    :param kwargs: Dictionary containing keyword arguments for the function \
     'get_custom_generator'.
     :returns: A populated ParameterGenerator instance.
     """
@@ -108,20 +110,20 @@ def load_parameter_generator(path, kwargs):
         spec = importlib.util.spec_from_file_location("custom_gen", path)
         f = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(f)
-        return f.get_custom_generator(**kwargs)
+        return f.get_custom_generator(env, **kwargs)
     except ImportError:
         try:
             # Python 3.3
             from importlib.machinery import SourceFileLoader
             LOGGER.debug("Using Python 3.4 SourceFileLoader...")
             f = SourceFileLoader("custom_gen", path).load_module()
-            return f.get_custom_generator(**kwargs)
+            return f.get_custom_generator(env, **kwargs)
         except ImportError:
             # Python 2
             import imp
             LOGGER.debug("Using Python 2 imp library...")
             f = imp.load_source("custom_gen", path)
-            return f.get_custom_generator(**kwargs)
+            return f.get_custom_generator(env, **kwargs)
     except Exception as e:
         LOGGER.exception(str(e))
         raise e
@@ -182,6 +184,11 @@ def run_study(args):
         LOGGER.exception(msg)
         raise ArgumentError(msg)
 
+    # Addition of the $(SPECROOT) to the environment.
+    spec_root = os.path.split(args.specification)[0]
+    spec_root = Variable("SPECROOT", os.path.abspath(spec_root))
+    environment.add(spec_root)
+
     # Handle loading a custom ParameterGenerator if specified.
     if args.pgen:
         # 'pgen_args' has a default of an empty list, which should translate
@@ -189,14 +196,15 @@ def run_study(args):
         kwargs = create_dictionary(args.pargs)
         # Copy the Python file used to generate parameters.
         shutil.copy(args.pgen, output_path)
-        parameters = load_parameter_generator(args.pgen, kwargs)
+
+        # Add keywords and environment from the spec to pgen args.
+        kwargs["OUTPUT_PATH"] = output_path
+        kwargs["SPECROOT"] = spec_root
+
+        # Load the parameter generator.
+        parameters = load_parameter_generator(args.pgen, environment, kwargs)
     else:
         parameters = spec.get_parameters()
-
-    # Addition of the $(SPECROOT) to the environment.
-    spec_root = os.path.split(args.specification)[0]
-    spec_root = Variable("SPECROOT", os.path.abspath(spec_root))
-    environment.add(spec_root)
 
     # Setup the study.
     study = Study(spec.name, spec.description, studyenv=environment,
@@ -238,6 +246,9 @@ def run_study(args):
     if not spec.batch:
         exec_dag.set_adapter({"type": "local"})
     else:
+        if "type" not in spec.batch:
+            spec.batch["type"] = "local"
+
         exec_dag.set_adapter(spec.batch)
 
     # Copy the spec to the output directory
@@ -282,7 +293,9 @@ def run_study(args):
             LOGGER.debug(" ".join(cmd))
             start_process(" ".join(cmd))
 
-    print("Study launched successfully.")
+            print("Study launched successfully.")
+    else:
+        print("Study launch aborted.")
 
     return 0
 
@@ -387,6 +400,8 @@ def setup_argparser():
     parser.add_argument(
         "-c", "--logstdout", action="store_true", default=True,
         help="Log to stdout in addition to a file. [Default: %(default)s]")
+    parser.add_argument(
+        "-v", "--version", action="version", version='%(prog)s ' + __version__)
 
     return parser
 
